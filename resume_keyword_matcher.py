@@ -48,3 +48,23 @@ if st.button("Scan Resume"):
         st.write(", ".join(missing) if missing else "None")
 
         st.info("Tip: Add missing relevant keywords to improve your chances with ATS systems.")
+
+        # ATS-Friendly Formatting Tips
+        st.write("### 📌 ATS Formatting Suggestions")
+        st.markdown("""
+        - ✅ Use standard section headers like `Experience`, `Skills`, `Education`
+        - ✅ Save your resume as a PDF (unless JD says otherwise)
+        - ❌ Avoid using tables or columns (ATS may read it incorrectly)
+        - ❌ No fancy fonts, icons, or images
+        - ✅ Use simple bullet points and plain text
+        """)
+
+        # Resume Fix Suggestions (based on missing keywords)
+        if missing:
+            suggestions = [
+                f"Consider adding keywords like **{word}** to highlight relevant experience."
+                for word in list(missing)[:5]
+            ]
+            st.write("### 💡 Suggested Improvements for ATS:")
+            for suggestion in suggestions:
+                st.markdown(f"- {suggestion}")
