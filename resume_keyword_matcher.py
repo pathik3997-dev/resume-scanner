@@ -1,106 +1,96 @@
 import streamlit as st
 import PyPDF2
 import re
-import string
-import openai
-from openai import OpenAI
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
+from openai import OpenAI, RateLimitError
+import os
 
-# --- Page Config ---
-st.set_page_config(page_title="AI Resume Scanner", layout="centered")
-st.title("📄 AI Resume Keyword Scanner (Phase 1)")
+# Load OpenAI Key from Streamlit secrets
+openai_api_key = st.secrets["openai_key"]
+client = OpenAI(api_key=openai_api_key)
 
-# --- Load OpenAI API key ---
-client = OpenAI(api_key=st.secrets["openai_key"])
+st.set_page_config(page_title="AI Resume Keyword Scanner", layout="wide")
 
-# --- PDF Upload & JD Input ---
-uploaded_file = st.file_uploader("📎 Upload your Resume (PDF)", type=["pdf"])
-job_desc = st.text_area("📝 Paste the Job Description below:", height=180)
+st.title("📄 AI Resume Keyword Scanner & ATS Optimizer")
 
-# --- PDF Text Extractor ---
-def extract_text_from_pdf(file):
-    pdf_reader = PyPDF2.PdfReader(file)
-    text = "".join([page.extract_text() or "" for page in pdf_reader.pages])
+# 1. Upload Resume
+uploaded_file = st.file_uploader("Upload Your Resume (PDF only)", type=["pdf"])
+
+# 2. Input Job Description
+job_desc = st.text_area("Paste the Job Description Here", height=200)
+
+# Function: Extract text from uploaded resume
+def extract_text_from_pdf(pdf_file):
+    reader = PyPDF2.PdfReader(pdf_file)
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text()
     return text
 
+# Function: Clean and normalize text
 def clean_text(text):
     text = text.lower()
-    text = re.sub(f"[{string.punctuation}]", "", text)
+    text = re.sub(r'\W+', ' ', text)
     return text
 
-# --- GPT Bullet Point Suggestions ---
+# Function: Extract keywords
+def extract_keywords(text, top_n=30):
+    vectorizer = TfidfVectorizer(stop_words='english', max_features=top_n)
+    X = vectorizer.fit_transform([text])
+    return vectorizer.get_feature_names_out()
+
+# Function: GPT suggestions
 def gpt_suggestions(missing_keywords, jd):
-    prompt = f"""You're a resume expert. Suggest up to 5 bullet points to help a resume include these keywords: {', '.join(missing_keywords)}. The role is based on this job description:\n{jd}"""
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role":"user", "content": prompt}],
-        max_tokens=250
-    )
-    return response.choices[0].message.content
+    prompt = f"""You're a resume expert. Suggest up to 5 improvements to add the following keywords to a resume:\n{', '.join(missing_keywords)}\n\nThe job description is:\n{jd}"""
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300
+        )
+        return response.choices[0].message.content
+    except RateLimitError:
+        return "⚠️ OpenAI rate limit reached. Please wait and try again later."
 
-# --- Word Cloud Visualizer ---
-def show_wordcloud(text):
-    wc = WordCloud(width=800, height=300, background_color='white').generate(text)
-    fig, ax = plt.subplots(figsize=(10, 3))
-    ax.imshow(wc, interpolation='bilinear')
-    ax.axis("off")
-    st.pyplot(fig)
+# Main: When user submits
+if uploaded_file and job_desc:
+    resume_text = extract_text_from_pdf(uploaded_file)
+    clean_resume = clean_text(resume_text)
+    clean_jd = clean_text(job_desc)
 
-# --- SCAN ---
-if st.button("🚀 Scan Resume"):
-    if not uploaded_file or not job_desc:
-        st.warning("Please upload a resume and paste a job description.")
-    else:
-        resume_text = extract_text_from_pdf(uploaded_file)
-        resume_clean = clean_text(resume_text)
-        jd_clean = clean_text(job_desc)
+    resume_keywords = extract_keywords(clean_resume)
+    jd_keywords = extract_keywords(clean_jd)
 
-        # Cosine Similarity
-        vectorizer = TfidfVectorizer()
-        tfidf_matrix = vectorizer.fit_transform([resume_clean, jd_clean])
-        similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
-        st.success(f"✅ Resume Match Score: **{round(similarity * 100, 2)}%**")
+    matched = set(resume_keywords) & set(jd_keywords)
+    missing = set(jd_keywords) - set(resume_keywords)
 
-        # Keywords
-        resume_words = set(resume_clean.split())
-        jd_words = set(jd_clean.split())
-        matched = jd_words.intersection(resume_words)
-        missing = jd_words.difference(resume_words)
+    match_percent = round(len(matched) / len(jd_keywords) * 100)
 
-        st.subheader("✅ Matched Keywords")
-        st.write(", ".join(list(matched)[:50]))
+    st.subheader("🔍 Keyword Match Summary")
+    st.write(f"✅ **Match:** {len(matched)} / {len(jd_keywords)}")
+    st.progress(match_percent)
+    st.write(f"🧠 Match Percentage: **{match_percent}%**")
 
-        st.subheader("❌ Missing Keywords")
-        st.write(", ".join(list(missing)[:30]) or "None")
+    st.subheader("✅ Matched Keywords")
+    st.write(", ".join(matched) if matched else "No keywords matched.")
 
-        # GPT Suggestions
-        if missing:
-            with st.spinner("💡 AI is analyzing your resume..."):
-                suggestions = gpt_suggestions(list(missing)[:10], job_desc)
-                st.markdown("### 💡 GPT Resume Suggestions")
-                st.markdown(suggestions)
+    st.subheader("❌ Missing Keywords")
+    st.write(", ".join(missing) if missing else "No missing keywords!")
 
-        # Word Cloud
-        st.markdown("### 🔥 Resume Word Cloud")
-        show_wordcloud(resume_clean)
+    st.subheader("💡 GPT Suggestions to Improve Resume")
+    with st.spinner("Generating suggestions..."):
+        suggestions = gpt_suggestions(list(missing)[:10], job_desc)
+    st.write(suggestions)
 
-        # Section-wise breakdown
-        st.markdown("### 🧩 Section-Wise Breakdown")
-        sections = {
-            "Skills": re.findall(r"(skills|technologies)[\s\S]{0,300}", resume_text, re.I),
-            "Experience": re.findall(r"(experience)[\s\S]{0,1000}", resume_text, re.I),
-            "Education": re.findall(r"(education)[\s\S]{0,500}", resume_text, re.I)
-        }
-        for sec, content in sections.items():
-            if content:
-                st.markdown(f"**📌 {sec} Section:**")
-                st.code(content[0])
-            else:
-                st.warning(f"❌ No '{sec}' section found!")
+    st.subheader("📊 Resume Word Cloud")
+    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(clean_resume)
+    plt.figure(figsize=(10, 5))
+    plt.imshow(wordcloud, interpolation='bilinear')
+    plt.axis("off")
+    st.pyplot(plt)
 
-        # Resume Preview
-        st.markdown("### 📄 Full Resume Text (Extracted)")
-        st.text_area("Resume Preview", resume_text, height=250)
+    st.subheader("📎 Resume Text (Extracted)")
+    with st.expander("Click to view extracted resume text"):
+        st.write(resume_text)
