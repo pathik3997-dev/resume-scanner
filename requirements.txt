@@ -1,8 +1,8 @@
 streamlit
-scikit-learn
 PyPDF2
-openai
-wordcloud
 matplotlib
-pdfplumber
-
+wordcloud
+scikit-learn
+pandas
+fpdf
+python-docx
