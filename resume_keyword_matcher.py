@@ -82,22 +82,42 @@ def rule_based_suggestions_v2(resume_text, job_keywords):
         tips.append(("🎉 Your resume looks strong and well-structured!", True))
     return tips
 
+# -------------------- Export Functions --------------------
+
+def export_to_pdf(text):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_font("Arial", size=12)
+    # Write each line, stripping unsupported chars
+    for line in text.split("\n"):
+        safe_line = line.encode('latin-1', 'ignore').decode('latin-1')
+        pdf.multi_cell(0, 10, safe_line)
+    return pdf.output(dest='S').encode('latin-1')
+
+
+def export_to_docx(text):
+    doc = Document()
+    doc.add_heading('Resume', 0)
+    for line in text.split("\n"):
+        doc.add_paragraph(line)
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
+
 # -------------------- Main App --------------------
 
 uploaded_file = st.file_uploader("📤 Upload Your Resume (PDF)", type=["pdf"])
 job_description = st.text_area("📝 Paste the Job Description (optional)")
 
 if uploaded_file:
-    # Extract and clean
     resume_bytes = uploaded_file.read()
     resume_text = extract_text_from_pdf(io.BytesIO(resume_bytes))
     clean_resume = clean_text(resume_text)
 
-    # Keyword analysis
     match_percent, matched, missing, job_keywords = keyword_match(resume_text, job_description)
     sections = extract_sections(resume_text)
 
-    # Layout tabs
     tab1, tab2, tab3 = st.tabs(["📊 Overview", "📁 Sections", "📥 Export & Tips"])
 
     with tab1:
@@ -142,26 +162,13 @@ if uploaded_file:
             st.markdown(f"**{sec}**: {len(kw)} keywords"); st.caption(', '.join(kw) if kw else 'None')
 
     with tab3:
-        # Original resume download
         st.subheader("📥 Download Original Resume")
         st.download_button("Download PDF", data=resume_bytes, file_name="your_resume.pdf", mime="application/pdf")
 
-        # Export as text PDF
-        def export_to_pdf(text):
-            pdf = FPDF(); pdf.add_page(); pdf.set_auto_page_break(True, 15); pdf.set_font("Arial", size=12)
-            for line in text.split("\n"):
-                pdf.multi_cell(0, 10, line)
-            return pdf.output(dest='S').encode('latin-1')
-
+        st.subheader("⬇ Export as PDF (Text)")
         pdf_out = export_to_pdf(resume_text)
-        st.download_button("⬇ Export as PDF (Text)", data=pdf_out, file_name="resume_export.pdf", mime="application/pdf")
+        st.download_button("Export PDF", data=pdf_out, file_name="resume_export.pdf", mime="application/pdf")
 
-        # Export as DOCX
-        def export_to_docx(text):
-            doc = Document(); doc.add_heading('Resume', 0)
-            for line in text.split("\n"):
-                doc.add_paragraph(line)
-            buf = io.BytesIO(); doc.save(buf); return buf.getvalue()
-
+        st.subheader("⬇ Export as DOCX (Text)")
         docx_out = export_to_docx(resume_text)
-        st.download_button("⬇ Export as DOCX (Text)", data=docx_out, file_name="resume_export.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        st.download_button("Export DOCX", data=docx_out, file_name="resume_export.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
