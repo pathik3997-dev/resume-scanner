@@ -29,7 +29,7 @@ def clean_text(text):
     text = re.sub(r'\W+', ' ', text)
     return text.lower()
 
-# --- Extract sections from resume (basic rule-based)
+# --- Extract sections from resume
 def extract_sections(text):
     sections = {
         "Experience": "",
@@ -52,7 +52,7 @@ def extract_sections(text):
             sections[current_section] += line + " "
     return sections
 
-# --- Match keywords
+# --- Keyword match
 def keyword_match(resume_text, job_desc):
     resume_words = set(clean_text(resume_text).split())
     job_words = set(clean_text(job_desc).split())
@@ -67,24 +67,34 @@ if uploaded_file and job_desc:
     clean_resume = clean_text(resume_text)
     match_percent, common, missing, job_keywords = keyword_match(resume_text, job_desc)
 
-    st.subheader("✅ Match Score")
-    st.markdown(f"**{match_percent}%** of the job description keywords are present in your resume.")
+    col1, col2 = st.columns(2)
 
-    st.subheader("❌ Missing Keywords")
-    if missing:
-        st.warning(", ".join(list(missing)[:15]) + ("..." if len(missing) > 15 else ""))
-    else:
-        st.success("Your resume contains all the keywords!")
+    with col1:
+        st.subheader("✅ Match Score")
+        st.markdown(f"<h2 style='color: green'>{match_percent}%</h2>", unsafe_allow_html=True)
 
-    # Word Cloud
-    st.subheader("📊 Resume Word Cloud")
-    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(clean_resume)
-    plt.figure(figsize=(10, 5))
-    plt.imshow(wordcloud, interpolation='bilinear')
-    plt.axis("off")
-    st.pyplot(plt)
+        st.subheader("❌ Missing Keywords")
+        if missing:
+            st.warning(", ".join(list(missing)[:15]) + ("..." if len(missing) > 15 else ""))
+        else:
+            st.success("Your resume contains all the keywords!")
 
-    # --- Section-Wise Keyword Match Chart
+    with col2:
+        st.subheader("☁️ Resume Word Cloud")
+        wc = WordCloud(
+            width=800, 
+            height=400, 
+            background_color='white', 
+            colormap='plasma',
+            max_words=150
+        ).generate(clean_resume)
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.imshow(wc, interpolation='bilinear')
+        ax.axis("off")
+        st.pyplot(fig)
+
+    # --- Section-Wise Keyword Match
+    st.markdown("---")
     st.subheader("📁 Section-Wise Keyword Match")
 
     sections = extract_sections(resume_text)
@@ -100,14 +110,16 @@ if uploaded_file and job_desc:
             matched_counts.append(len(found))
             matched_keywords[sec] = found
 
-    # Bar Chart
-    fig2, ax2 = plt.subplots()
-    ax2.barh(section_names, matched_counts, color='skyblue')
-    ax2.set_xlabel('Number of Matching Keywords')
-    ax2.set_title('Keyword Match by Resume Section')
+    # Enhanced Bar Chart
+    fig2, ax2 = plt.subplots(figsize=(10, 4))
+    bars = ax2.barh(section_names, matched_counts, color='#6EC1E4')
+    ax2.set_xlabel('Keyword Matches', fontsize=12)
+    ax2.set_title('Keyword Matches per Resume Section', fontsize=14, fontweight='bold')
+    ax2.grid(True, axis='x', linestyle='--', alpha=0.6)
+    ax2.bar_label(bars, fmt='%.0f', padding=5)
     st.pyplot(fig2)
 
-    # Section-wise text details
+    # Section-wise keyword listing
     for sec in section_names:
-        st.markdown(f"**{sec}** – Keywords matched: {len(matched_keywords[sec])}")
+        st.markdown(f"**{sec}** – Matched Keywords: {len(matched_keywords[sec])}")
         st.caption(", ".join(matched_keywords[sec]) if matched_keywords[sec] else "No keywords matched.")
