@@ -4,4 +4,5 @@ PyPDF2
 openai
 wordcloud
 matplotlib
+pdfplumber
 
