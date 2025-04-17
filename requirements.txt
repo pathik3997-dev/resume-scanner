@@ -1,7 +1,7 @@
 streamlit
 scikit-learn
 PyPDF2
-openai
+openai>=1.0.0
 wordcloud
 matplotlib
 
