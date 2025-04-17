@@ -34,17 +34,18 @@ def extract_sections(text):
     sections = {"Experience": "", "Education": "", "Skills": "", "Projects": ""}
     current = None
     for line in text.split("\n"):
-        l = line.strip().lower()
-        if "experience" in l:
+        l = line.strip()
+        low = l.lower()
+        if "experience" in low:
             current = "Experience"
-        elif "education" in l:
+        elif "education" in low:
             current = "Education"
-        elif "skill" in l:
+        elif "skill" in low:
             current = "Skills"
-        elif "project" in l:
+        elif "project" in low:
             current = "Projects"
         elif current:
-            sections[current] += line + "\n"
+            sections[current] += l + "\n"
     return sections
 
 
@@ -57,53 +58,82 @@ def keyword_match(resume_text, job_desc):
     return match_percent, common, missing, job_words
 
 
-def rule_based_suggestions_v2(resume_text, job_keywords):
+def rule_based_suggestions_v3(resume_text, job_keywords):
     tips = []
     low = resume_text.lower()
+    # Generic tips
+    tips.append(("Include contact information at the top (email, phone, LinkedIn)", False))
+    tips.append(("Add a concise summary or objective statement at the beginning", False))
+    tips.append(("Use clear section headings (Experience, Education, Skills, Projects)", False))
+    tips.append(("Use bullet points to list achievements and responsibilities", False))
+    # Existing rule-based checks
     if len(resume_text.split("\n")) < 10:
-        tips.append(("Improve spacing and add clear section headings", False))
+        tips.append(("Ensure the resume is at least 1 page long", False))
     if "experience" not in low:
         tips.append(("Add an 'Experience' section", False))
     if "education" not in low:
         tips.append(("Include an 'Education' section", False))
     if "skill" not in low:
-        tips.append(("Add a 'Skills' list with relevant tools", False))
+        tips.append(("Add a 'Skills' section listing relevant tools and technologies", False))
     if "project" not in low:
-        tips.append(("Include a 'Projects' section to showcase work", False))
+        tips.append(("Add a 'Projects' section to showcase your work", False))
+    # Achievement quantification
     if not re.search(r"\d+%", resume_text) and not re.search(r"\$\d+", resume_text):
-        tips.append(("Quantify achievements with numbers or metrics", False))
+        tips.append(("Quantify your achievements with numbers or metrics", False))
+    # Action verbs
     if not any(w in low for w in ["led", "built", "created", "improved"]):
-        tips.append(("Use action verbs like 'Led', 'Built', 'Improved'", False))
-    if len(resume_text) > 3000:
-        tips.append(("Limit resume to 1–2 pages for readability", False))
-    if not job_keywords & set(low.split()):
-        tips.append(("Add keywords from the job description", False))
-    if not tips:
-        tips.append(("🎉 Your resume looks strong and well-structured!", True))
+        tips.append(("Use strong action verbs like 'Led', 'Created', 'Improved'", False))
+    # Job keywords
+    if job_keywords:
+        missing_jk = job_keywords - set(low.split())
+        if missing_jk:
+            tips.append((f"Include these job keywords: {', '.join(list(missing_jk)[:5])}...", False))
+    # Final success if no issues
+    if all(done for _, done in tips):
+        tips = [("🎉 Your resume is well-formatted and comprehensive!", True)]
     return tips
 
-# -------------------- Export Functions --------------------
+# -------------------- Export Report Functions --------------------
 
-def export_to_pdf(text):
+def export_report_to_pdf(score, matched, missing, section_matches, suggestions):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_font("Arial", size=14)
+    pdf.cell(0, 10, "ATS Resume Scanner Report", ln=True)
+    pdf.ln(5)
     pdf.set_font("Arial", size=12)
-    # Write each line, stripping unsupported chars
-    for line in text.split("\n"):
-        safe_line = line.encode('latin-1', 'ignore').decode('latin-1')
-        pdf.multi_cell(0, 10, safe_line)
+    pdf.cell(0, 8, f"Match Score: {score}%", ln=True)
+    pdf.ln(3)
+    pdf.multi_cell(0, 6, "Matched Keywords: " + ", ".join(list(matched)))
+    pdf.ln(1)
+    pdf.multi_cell(0, 6, "Missing Keywords: " + ", ".join(list(missing)))
+    pdf.ln(5)
+    pdf.cell(0, 8, "Section-wise Matches:", ln=True)
+    for sec, words in section_matches.items():
+        pdf.multi_cell(0, 6, f" - {sec}: {len(words)} matched ({', '.join(words)})")
+    pdf.ln(5)
+    pdf.cell(0, 8, "Resume Improvement Tips:", ln=True)
+    for tip, _ in suggestions:
+        pdf.multi_cell(0, 6, f" - {tip}")
     return pdf.output(dest='S').encode('latin-1')
 
 
-def export_to_docx(text):
+def export_report_to_docx(score, matched, missing, section_matches, suggestions):
     doc = Document()
-    doc.add_heading('Resume', 0)
-    for line in text.split("\n"):
-        doc.add_paragraph(line)
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    return buffer.getvalue()
+    doc.add_heading('ATS Resume Scanner Report', 0)
+    doc.add_paragraph(f"Match Score: {score}%")
+    doc.add_paragraph("Matched Keywords: " + ", ".join(list(matched)))
+    doc.add_paragraph("Missing Keywords: " + ", ".join(list(missing)))
+    doc.add_heading('Section-wise Matches', level=1)
+    for sec, words in section_matches.items():
+        doc.add_paragraph(f"{sec}: {len(words)} matched ({', '.join(words)})")
+    doc.add_heading('Resume Improvement Tips', level=1)
+    for tip, _ in suggestions:
+        doc.add_paragraph(f"- {tip}")
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
 
 # -------------------- Main App --------------------
 
@@ -117,8 +147,13 @@ if uploaded_file:
 
     match_percent, matched, missing, job_keywords = keyword_match(resume_text, job_description)
     sections = extract_sections(resume_text)
+    section_matches = {}
+    for sec, cont in sections.items():
+        section_matches[sec] = set(clean_text(cont).split()) & job_keywords
 
-    tab1, tab2, tab3 = st.tabs(["📊 Overview", "📁 Sections", "📥 Export & Tips"])
+    suggestions = rule_based_suggestions_v3(resume_text, job_keywords)
+
+    tab1, tab2, tab3 = st.tabs(["📊 Overview", "📈 Sections", "📥 Report & Tips"])
 
     with tab1:
         col1, col2 = st.columns([1, 1])
@@ -130,7 +165,6 @@ if uploaded_file:
                 st.warning(", ".join(list(missing)[:20]) + ("..." if len(missing) > 20 else ""))
             else:
                 st.success("All job keywords found!")
-
         with col2:
             st.subheader("☁️ Resume Word Cloud")
             wc = WordCloud(width=800, height=300, background_color='white', colormap='viridis', max_words=100).generate(clean_resume)
@@ -139,36 +173,30 @@ if uploaded_file:
             st.pyplot(fig)
 
     with tab2:
-        st.subheader("📊 Top Keywords")
-        vec = CountVectorizer(stop_words='english', max_features=10)
-        freqs = vec.fit_transform([clean_resume]).toarray()[0]
-        df = pd.DataFrame({'Keyword': vec.get_feature_names_out(), 'Frequency': freqs})
-        df = df.sort_values(by='Frequency', ascending=False)
-        st.bar_chart(df.set_index('Keyword'))
-
-        st.subheader("📁 Section-Wise Matches")
-        names, counts = [], []
-        sec_matches = {}
-        for sec, cont in sections.items():
-            if cont.strip():
-                words = set(clean_text(cont).split())
-                found = words & job_keywords
-                names.append(sec); counts.append(len(found)); sec_matches[sec] = found
-        fig2, ax2 = plt.subplots(figsize=(6, 3))
-        bars = ax2.barh(names, counts, color='#4CAF50')
-        ax2.bar_label(bars); ax2.set_xlabel('Matches'); ax2.set_title('Section Matches')
+        st.subheader("📈 Section-wise Matches")
+        df_sec = pd.DataFrame([{"Section": sec, "Matches": len(words)} for sec, words in section_matches.items()])
+        fig2, ax2 = plt.subplots(figsize=(6, 4))
+        ax2.bar(df_sec['Section'], df_sec['Matches'], color='#4CAF50')
+        ax2.set_ylabel('Matches'); ax2.set_title('Section-wise Keyword Matches')
+        for i, v in enumerate(df_sec['Matches']):
+            ax2.text(i, v + 0.2, str(v), ha='center')
         st.pyplot(fig2)
-        for sec, kw in sec_matches.items():
-            st.markdown(f"**{sec}**: {len(kw)} keywords"); st.caption(', '.join(kw) if kw else 'None')
+
+        st.subheader("🔢 Section Details")
+        cols = st.columns(2)
+        for idx, (sec, words) in enumerate(section_matches.items()):
+            with cols[idx % 2]:
+                st.markdown(f"**{sec}** ({len(words)} matches):")
+                for w in words:
+                    st.write(f"- {w}")
 
     with tab3:
-        st.subheader("📥 Download Original Resume")
-        st.download_button("Download PDF", data=resume_bytes, file_name="your_resume.pdf", mime="application/pdf")
+        st.subheader("📥 Download Analysis Report")
+        pdf_report = export_report_to_pdf(match_percent, matched, missing, section_matches, suggestions)
+        st.download_button("Export Report as PDF", data=pdf_report, file_name="analysis_report.pdf", mime="application/pdf")
+        docx_report = export_report_to_docx(match_percent, matched, missing, section_matches, suggestions)
+        st.download_button("Export Report as DOCX", data=docx_report, file_name="analysis_report.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
-        st.subheader("⬇ Export as PDF (Text)")
-        pdf_out = export_to_pdf(resume_text)
-        st.download_button("Export PDF", data=pdf_out, file_name="resume_export.pdf", mime="application/pdf")
-
-        st.subheader("⬇ Export as DOCX (Text)")
-        docx_out = export_to_docx(resume_text)
-        st.download_button("Export DOCX", data=docx_out, file_name="resume_export.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        st.subheader("🎯 Improvement Tips Checklist")
+        for tip, done in suggestions:
+            st.checkbox(tip, value=done, disabled=True)
